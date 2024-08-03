@@ -1,9 +1,8 @@
 import cv2
 from simple_facerec import SimpleFacerec
+import pandas as pd
 from datetime import datetime
 import os
-import json
-import requests
 
 # Encode faces from a folder
 sfr = SimpleFacerec()
@@ -12,14 +11,21 @@ sfr.load_encoding_images("images/")
 # Load Camera
 cap = cv2.VideoCapture(1)
 
+# Directory to store attendance files
+attendance_dir = "attendance_records"
+os.makedirs(attendance_dir, exist_ok=True)
+
+# Get today's date
+today_date = datetime.now().strftime("%Y-%m-%d")
+
+# Output Excel file path for today's date
+excel_file_path = os.path.join(attendance_dir, f"attendance_{today_date}.xlsx")
+
 # Dictionary to store the first detection time of each person
 detected_faces = {}
 
-# Set to keep track of persons whose data is already sent
-sent_faces = set()
-
-# Server URL (replace with your actual server URL)
-server_url = "https://postman-echo.com/post"
+# Set to keep track of persons whose data is already saved
+saved_faces = set()
 
 # check it status
 checkIn = ""
@@ -72,23 +78,22 @@ while True:
         if name != "Unknown":
             cv2.putText(frame, name, (x1, y1 - 10), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 200), 2)
 
-    # Send data to server as JSON request if there are known faces that haven't been sent yet
-    json_data_list = [{"Name": name, "status": checkIn, "Date": current_day, "Check In Time": detected_faces[name]} for name in detected_faces if name not in sent_faces]
+    # Save data to Excel file if there are known faces that haven't been saved yet
+    data_list = [{"Name": name, "status": checkIn, "Date": current_day, "Check In Time": detected_faces[name]} for name in detected_faces if name not in saved_faces]
 
-    if json_data_list:
-        json_data = json.dumps(json_data_list)
-        print("JSON Data to be sent:", json_data)
-        headers = {'Content-Type': 'application/json'}
-        try:
-            response = requests.post(server_url, data=json_data, headers=headers)
-            if response.status_code == 200:
-                print("Data sent successfully")
-                for entry in json_data_list:
-                    sent_faces.add(entry["Name"])
-            else:
-                print(f"Failed to send data: {response.status_code}")
-        except requests.exceptions.RequestException as e:
-            print(f"Error sending data: {e}")
+    if data_list:
+        if os.path.exists(excel_file_path):
+            existing_df = pd.read_excel(excel_file_path, engine='openpyxl')
+            new_df = pd.DataFrame(data_list)
+            combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+            combined_df.to_excel(excel_file_path, index=False, engine='openpyxl')
+        else:
+            df = pd.DataFrame(data_list)
+            df.to_excel(excel_file_path, index=False, engine='openpyxl')
+        
+        # Add the saved names to the saved_faces set
+        for entry in data_list:
+            saved_faces.add(entry["Name"])
 
     cv2.imshow("Frame", frame)
 
