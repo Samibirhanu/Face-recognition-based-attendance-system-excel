@@ -1,7 +1,7 @@
 import cv2
 from simple_facerec import SimpleFacerec
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, time
 import os
 
 # Encode faces from a folder
@@ -21,15 +21,11 @@ today_date = datetime.now().strftime("%Y-%m-%d")
 # Output Excel file path for today's date
 excel_file_path = os.path.join(attendance_dir, f"attendance_{today_date}.xlsx")
 
-# Dictionary to store the first detection time of each person
-detected_faces = {}
+# Dictionary to store the first detection time of each person for check-in
+checkin_times = {}
 
-# Set to keep track of persons whose data is already saved
-saved_faces = set()
-
-# check it status
-checkIn = ""
-entryTime = datetime.strptime("3:15:00", "%H:%M:%S").time()
+# Dictionary to store the first detection time of each person for check-out
+checkout_times = {}
 
 # Check if camera opened successfully
 if not cap.isOpened():
@@ -45,24 +41,24 @@ while True:
 
     # Detect Faces
     face_locations, face_names = sfr.detect_known_faces(frame, tolerance=0.5)
-    current_time = datetime.now().strftime("%H:%M:%S")
-    current_time_attendance = datetime.now().time()
-    current_day = datetime.now().strftime("%Y-%m-%d")
-    
-    # time calculation for late check in
-    if current_time_attendance <= entryTime:
-        checkIn = "check In"
-    else:
-        checkIn = "Late check In"
-    
-    # Update detected_faces dictionary with the first detection time
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_time_obj = datetime.now().time()
+
+    # Check for checkout time interval
+    checkout_start = time(12, 54, 0)
+    checkout_end = time(12, 56, 0)
+
+    # Update checkin_times dictionary with the first detection time
     for name in face_names:
-        if name != "Unknown" and name not in detected_faces:
-            detected_faces[name] = current_time
+        if name != "Unknown":
+            if name not in checkin_times:
+                checkin_times[name] = current_time
+            if checkout_start <= current_time_obj <= checkout_end:
+                checkout_times[name] = current_time
 
     # Display the list of detected persons and their first detected time at the top of the frame
     y_offset = 20  # Initial offset for the first line of text
-    for name, first_detection_time in detected_faces.items():
+    for name, first_detection_time in checkin_times.items():
         if name != "Unknown":
             display_text = f"{name}: {first_detection_time}"
             cv2.putText(frame, display_text, (10, y_offset), cv2.FONT_HERSHEY_DUPLEX, 0.6, (0, 0, 200), 1)
@@ -78,22 +74,23 @@ while True:
         if name != "Unknown":
             cv2.putText(frame, name, (x1, y1 - 10), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 200), 2)
 
-    # Save data to Excel file if there are known faces that haven't been saved yet
-    data_list = [{"Name": name, "status": checkIn, "Date": current_day, "Check In Time": detected_faces[name]} for name in detected_faces if name not in saved_faces]
+    # Prepare data to save to Excel file
+    data_list = []
+    for name in set(checkin_times.keys()).union(checkout_times.keys()):
+        if name != "Unknown":
+            record = {"Name": name, "Check In": checkin_times.get(name, ""), "Check Out": checkout_times.get(name, "")}
+            data_list.append(record)
 
     if data_list:
         if os.path.exists(excel_file_path):
             existing_df = pd.read_excel(excel_file_path, engine='openpyxl')
             new_df = pd.DataFrame(data_list)
             combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+            combined_df.drop_duplicates(subset=['Name'], keep='last', inplace=True)  # Ensure no duplicate entries
             combined_df.to_excel(excel_file_path, index=False, engine='openpyxl')
         else:
             df = pd.DataFrame(data_list)
             df.to_excel(excel_file_path, index=False, engine='openpyxl')
-        
-        # Add the saved names to the saved_faces set
-        for entry in data_list:
-            saved_faces.add(entry["Name"])
 
     cv2.imshow("Frame", frame)
 

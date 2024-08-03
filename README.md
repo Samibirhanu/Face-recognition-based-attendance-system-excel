@@ -5,4 +5,7 @@ dependencies
 * install Dlib
 * install face_recognition
 * numpy == 1.24
+* install openpyxl 
+* panda 
+
 
